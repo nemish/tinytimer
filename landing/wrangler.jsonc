@@ -1,0 +1,7 @@
+// Static site on Cloudflare Workers: `pnpm build && npx wrangler deploy` uploads out/.
+{
+  "name": "tinytimer",
+  "compatibility_date": "2026-11-13",
+  "assets": { "directory": "./out", "not_found_handling": "404-page" },
+  "routes": [{ "pattern": "tinytimer.yaraoncode.me", "custom_domain": true }]
+}

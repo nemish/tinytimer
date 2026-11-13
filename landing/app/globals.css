@@ -1,0 +1,432 @@
+:root {
+  --bg: #0b0908;
+  --text: #f4ede4;
+  --muted: #9c9288;
+  --amber: #ffa53a;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 24px 24px;
+  background: var(--bg);
+  color: var(--text);
+  font: 19px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: center;
+}
+
+main {
+  max-width: 34rem;
+  margin: auto; /* centred in the space left under the notch */
+  padding: 16px 0 120px; /* heavier at the bottom, so the block sits above centre */
+  position: relative;
+  top: -52px; /* and lifted into the space reserved for the open panel, which overlays it */
+}
+
+/* The app hanging from the top edge, as it does from the MacBook notch: a pinned strip that grows
+   into the working panel on hover (app/notch.tsx). .top reserves the height of the main panel so
+   opening it moves nothing; the taller Preferences and Sessions views overlay the page. */
+.top {
+  --w: min(340px, calc(100vw - 32px));
+  position: relative;
+  z-index: 1;
+  flex: none;
+  align-self: stretch;
+  height: 170px;
+}
+
+.notch {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  translate: -50% 0;
+  width: 180px;
+  height: 32px;
+  overflow: hidden;
+  background: #000;
+  border-radius: 0 0 10px 10px;
+  box-shadow: 0 0 28px #ffffff0d, 0 0 110px #ffffff17;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
+  user-select: none;
+  /* slight overshoot, standing in for the app's spring */
+  transition: width 0.35s cubic-bezier(0.3, 1.25, 0.5, 1), height 0.35s cubic-bezier(0.3, 1.25, 0.5, 1),
+    border-radius 0.35s;
+}
+
+/* Unpinned: only a sliver shows until the pointer finds it. */
+.notch.unpinned {
+  height: 5px;
+}
+
+/* Open on hover, or when a control inside has keyboard focus. */
+.notch:hover,
+.notch:has(:focus-visible) {
+  width: var(--w);
+  height: var(--h);
+  border-radius: 0 0 18px 18px;
+}
+
+/* Quit: gone until it relaunches. */
+.notch.off {
+  height: 0;
+  width: 180px;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+.compact {
+  height: 26px;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: opacity 0.15s;
+}
+
+.panel {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  translate: -50% 0;
+  width: var(--w);
+  padding: 14px 16px 12px;
+  display: grid;
+  gap: 10px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.notch:hover .compact,
+.notch:has(:focus-visible) .compact,
+.notch.unpinned .compact {
+  opacity: 0;
+}
+
+.notch:hover .panel,
+.notch:has(:focus-visible) .panel {
+  opacity: 1;
+}
+
+.hint {
+  position: absolute;
+  top: 40px;
+  left: calc(50% + 62px);
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1;
+  transition: opacity 0.2s;
+  pointer-events: none; /* it sits where the open panel is; clicks must reach the panel */
+}
+
+.hint svg {
+  width: 30px;
+  margin-bottom: 5px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.notch:hover + .hint,
+.notch:has(:focus-visible) + .hint {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notch,
+  .notch * {
+    transition: none;
+  }
+}
+
+.notch .row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.notch .row.top-aligned {
+  align-items: flex-start;
+}
+
+.notch .push {
+  margin-left: auto;
+}
+
+.notch .grid,
+.notch .list {
+  display: grid;
+  gap: 6px;
+}
+
+.notch .list {
+  gap: 8px;
+  max-height: 196px;
+  overflow-y: auto;
+}
+
+.notch button {
+  appearance: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.notch button:hover {
+  filter: brightness(1.35);
+}
+
+.notch button:disabled {
+  opacity: 0.35;
+  cursor: default;
+  filter: none;
+}
+
+.notch :focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
+
+.notch .run {
+  width: 6px;
+  height: 6px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: #ffffff4d;
+}
+
+.notch .run.on {
+  background: var(--amber);
+}
+
+.notch .time {
+  font-size: 34px;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+}
+
+.notch .title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.notch .label {
+  flex: none;
+  width: 50px;
+  font-weight: 400;
+  color: #ffffff80;
+}
+
+.notch .top-aligned > .label {
+  padding-top: 4px;
+}
+
+.notch .note {
+  font-weight: 400;
+  color: #fff6;
+}
+
+.notch .when {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff8c;
+}
+
+.notch .when:first-child {
+  width: 84px;
+}
+
+.notch .when.current {
+  color: #fff;
+}
+
+.notch .chip {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #ffffff14;
+  color: #fff9;
+  white-space: nowrap;
+}
+
+.notch .chip.on {
+  background: #ffffff3d;
+  color: #fff;
+}
+
+.notch .min {
+  width: 46px;
+  text-align: center;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: #fffc;
+}
+
+.notch .dots {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 2px;
+}
+
+.notch .dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--amber);
+}
+
+.notch .dots b {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--amber);
+}
+
+.notch .ib {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #ffffff14;
+}
+
+.notch .ib.big {
+  width: 34px;
+  height: 34px;
+  background: #ffffff29;
+}
+
+.notch .ib.tiny {
+  width: 16px;
+  height: 16px;
+}
+
+.notch .compact .time {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.notch .compact .ib {
+  width: 18px;
+  height: 18px;
+  margin-left: 4px;
+  background: #ffffff29;
+}
+
+.notch svg {
+  width: 11px;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.notch .big svg {
+  width: 13px;
+}
+
+.notch .tiny svg {
+  width: 8px;
+  stroke: #ffffff80;
+}
+
+.notch .compact svg {
+  width: 9px;
+  stroke: #fff;
+}
+
+.notch svg .solid {
+  fill: #fff;
+  stroke: none;
+}
+
+.notch input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  height: 14px;
+  margin: 0;
+  accent-color: #fff;
+}
+
+.icon {
+  width: 96px;
+  fill: none;
+  stroke: var(--amber);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon rect {
+  fill: #1a1714;
+  stroke: #2b2723;
+  stroke-width: 1;
+}
+
+.icon .dot {
+  fill: var(--amber);
+  stroke: none;
+}
+
+h1 {
+  margin: 36px 0 16px;
+  font-size: clamp(2rem, 8vw, 3.25rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+p {
+  margin: 0 auto;
+  max-width: 28rem;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+a {
+  color: var(--amber);
+}
+
+.button {
+  display: inline-block;
+  margin: 40px 0 24px;
+  padding: 11px 34px;
+  border-radius: 11px;
+  background: var(--amber);
+  color: #1a1206;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.button:hover {
+  filter: brightness(1.1);
+}
+
+a:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+
+.small {
+  font-size: 16px;
+}
