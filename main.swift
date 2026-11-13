@@ -22,8 +22,71 @@ if CommandLine.arguments.contains("--selftest") {
     precondition(!chimeDue(prev: 29.9, now: 30.1, every: 0))
     precondition(chimeDue(prev: 29.9, now: 30.1, every: 30, repeats: false))
     precondition(!chimeDue(prev: 59.9, now: 60.1, every: 30, repeats: false))
+    precondition(Updater.newer("0.10", than: "0.9") && !Updater.newer("0.2", than: "0.2") && !Updater.newer("0.1", than: "0.2"))
+    var parsed: SecRequirement?
+    precondition(SecRequirementCreateWithString(Updater.requirement as CFString, [], &parsed) == errSecSuccess)
     print("selftest ok")
     exit(0)
+}
+
+// MARK: - Updates
+
+/// Self-update from the release bucket: `version` is plain text ("0.2"), `TinyTimer.zip` is the notarized app.
+enum Updater {
+    static let base = URL(string: "https://dl.yaraoncode.me/tinytimer/")!
+    static let download = base.appendingPathComponent("TinyTimer.zip")
+    /// Only a bundle signed by this Developer ID team is ever installed.
+    static let requirement = """
+        identifier "app.tinytimer.TinyTimer" and anchor apple generic \
+        and certificate 1[field.1.2.840.113635.100.6.2.6] exists \
+        and certificate leaf[field.1.2.840.113635.100.6.1.13] exists \
+        and certificate leaf[subject.OU] = "W3U75T8JTH"
+        """
+    static var current: String { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0" }
+
+    static func newer(_ a: String, than b: String) -> Bool { a.compare(b, options: .numeric) == .orderedDescending }
+
+    /// Calls back on the main queue with the published version, if it is newer than this build.
+    static func check(_ found: @escaping (String) -> Void) {
+        let req = URLRequest(url: base.appendingPathComponent("version"), cachePolicy: .reloadIgnoringLocalCacheData)
+        URLSession.shared.dataTask(with: req) { data, resp, _ in
+            guard (resp as? HTTPURLResponse)?.statusCode == 200, let data,
+                  let v = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !v.isEmpty, v.count < 20, v.allSatisfy({ $0.isNumber || $0 == "." }),
+                  newer(v, than: current) else { return }
+            DispatchQueue.main.async { found(v) }
+        }.resume()
+    }
+
+    /// Download, verify, swap the running bundle and launch the new one. Blocking; throws if any step fails.
+    static func install() throws {
+        let fm = FileManager.default, app = Bundle.main.bundleURL
+        let dir = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: app, create: true)
+        defer { try? fm.removeItem(at: dir) }
+        let zip = dir.appendingPathComponent("TinyTimer.zip")
+        try Data(contentsOf: download).write(to: zip)
+        try run("/usr/bin/ditto", "-x", "-k", zip.path, dir.path)
+        let new = dir.appendingPathComponent("TinyTimer.app")
+        // Trust boundary: the download must be signed by our team and must not be a downgrade.
+        var code: SecStaticCode?, req: SecRequirement?
+        let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSCheckNestedCode | kSecCSStrictValidate)
+        guard SecStaticCodeCreateWithPath(new as CFURL, [], &code) == errSecSuccess, let code,
+              SecRequirementCreateWithString(requirement as CFString, [], &req) == errSecSuccess, let req,
+              SecStaticCodeCheckValidity(code, flags, req) == errSecSuccess,
+              let v = Bundle(url: new)?.infoDictionary?["CFBundleShortVersionString"] as? String,
+              newer(v, than: current) else { throw CocoaError(.fileReadCorruptFile) }
+        _ = try fm.replaceItemAt(app, withItemAt: new)
+        try run("/usr/bin/open", "-n", app.path)
+    }
+
+    private static func run(_ path: String, _ args: String...) throws {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: path)
+        p.arguments = args
+        try p.run()
+        p.waitUntilExit()
+        if p.terminationStatus != 0 { throw CocoaError(.fileWriteUnknown) }
+    }
 }
 
 // MARK: - Model
@@ -58,6 +121,8 @@ final class TimerModel: ObservableObject {
         didSet { if expanded { stopRinging() } else { showPrefs = false; showSessions = false } }
     }
     @Published var showSessions = false
+    @Published var update: String?  // newer published version, if any
+    @Published var updating = false
     @Published var showPrefs = false
     @Published var hovering = false
     @Published var elapsed: TimeInterval = 0
@@ -139,6 +204,20 @@ final class TimerModel: ObservableObject {
         all[all.count - 1].minutes.append(countdownMin)
         // ponytail: history lives in UserDefaults, capped at 200 sessions; move to a file if it needs to grow.
         sessions = Array(all.suffix(200))
+    }
+
+    func checkForUpdate() { Updater.check { [weak self] v in self?.update = v } }
+
+    /// Installs the update and quits; if that fails (e.g. read-only location), opens the download instead.
+    func installUpdate() {
+        guard !updating else { return }
+        updating = true
+        DispatchQueue.global().async {
+            let ok = (try? Updater.install()) != nil
+            DispatchQueue.main.async {
+                if ok { NSApp.terminate(nil) } else { self.updating = false; NSWorkspace.shared.open(Updater.download) }
+            }
+        }
     }
 
     func restart() {
@@ -283,7 +362,11 @@ struct NotchView: View {
                 }
             }
             HStack(spacing: 6) {
-                chip("♪ \(m.sound) · \(chimeSummary)", on: false) { m.showPrefs = true }
+                if let v = m.update {  // takes the sound chip's place; the gear still opens Preferences
+                    chip(m.updating ? "Updating…" : "Update to \(v)", on: true) { m.installUpdate() }
+                } else {
+                    chip("♪ \(m.sound) · \(chimeSummary)", on: false) { m.showPrefs = true }
+                }
                 Spacer()
                 icon("gearshape") { m.showPrefs = true }
                 icon(m.pinned ? "pin.fill" : "pin") { m.pinned.toggle() }
@@ -482,6 +565,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
                                                object: nil, queue: .main) { [weak self] _ in self?.layout() }
+        model.checkForUpdate()
+        let daily = Timer(timeInterval: 86400, repeats: true) { [weak self] _ in self?.model.checkForUpdate() }
+        RunLoop.main.add(daily, forMode: .common)
         // ponytail: 30Hz cursor poll drives hover + click-through + click-outside. Swap for
         // NSEvent monitors / tracking areas if idle CPU ever shows up in Activity Monitor.
         let t = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.poll() }
