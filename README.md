@@ -83,3 +83,7 @@ Quit TinyTimer with the power icon, delete `/Applications/TinyTimer.app`, and op
 ## Ideas and bugs
 
 Have an idea or found a bug? You're welcome to post it in the [issues](https://github.com/nemish/tinytimer/issues).
+
+## License
+
+[MIT](LICENSE)
