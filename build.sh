@@ -3,7 +3,7 @@
 set -e
 cd "$(dirname "$0")"
 APP=TinyTimer.app
-VERSION=0.2  # bump before ./build.sh release; installed copies update when the published version is higher
+VERSION=0.3  # bump before ./build.sh release; installed copies update when the published version is higher
 mkdir -p "$APP/Contents/MacOS"
 swiftc -O -swift-version 5 main.swift -o "$APP/Contents/MacOS/TinyTimer"
 cat > "$APP/Contents/Info.plist" <<EOF

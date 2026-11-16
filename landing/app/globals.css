@@ -332,6 +332,15 @@ main {
   background: #ffffff29;
 }
 
+/* Pin sits in the right corner so the timer stays centred. */
+.notch .compact .ib.pin {
+  position: absolute;
+  right: 7px;
+  margin: 0;
+  background: none;
+  opacity: 0.45;
+}
+
 .notch svg {
   width: 11px;
   fill: none;

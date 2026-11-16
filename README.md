@@ -47,7 +47,7 @@ cd tinytimer
 | Click the big time, or anywhere outside | Collapses the panel |
 | Play button in the compact countdown | Starts the countdown; while running it restarts from the full duration |
 | Gear icon | Sound, chime and volume preferences |
-| Pin icon | Keeps the timer visible when the mouse is elsewhere |
+| Pin icon (compact timer or panel) | Keeps the timer visible when the mouse is elsewhere |
 | Power icon | Quits TinyTimer |
 
 ## Privacy

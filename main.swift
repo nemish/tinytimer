@@ -314,17 +314,22 @@ struct NotchView: View {
         HStack(spacing: 6) {
             dot
             Text(m.display).font(.system(size: 13, weight: .medium).monospacedDigit()).foregroundStyle(.white)
-            if m.mode == .countdown && m.completed > 0 { dots(m.completed, cap: 6) }
+            if m.mode == .countdown && m.completed > 0 { dots(m.completed, cap: 5) }
             if m.mode == .countdown {  // quick start; while running it restarts from the full duration
-                Button { m.running ? m.restart() : m.toggle() } label: {
-                    Image(systemName: m.running ? "arrow.counterclockwise" : "play.fill")
-                        .font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                        .frame(width: 18, height: 18).background(Color.white.opacity(0.16), in: Circle())
-                }.buttonStyle(.plain).padding(.leading, 4)
+                mini(m.running ? "arrow.counterclockwise" : "play.fill") { m.running ? m.restart() : m.toggle() }
+                    .padding(.leading, 4)
             }
         }
         .frame(maxWidth: .infinity).frame(height: 26)
         .contentShape(Rectangle())
+        // Pin sits in the right corner so the timer stays centred. Unpinned, the strip is only
+        // here while hovered, so it slides away once the mouse leaves.
+        .overlay(alignment: .trailing) {
+            Button { m.pinned.toggle() } label: {
+                Image(systemName: m.pinned ? "pin.fill" : "pin").font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.45)).frame(width: 22, height: 26).contentShape(Rectangle())
+            }.buttonStyle(.plain).padding(.trailing, 5).help(m.pinned ? "Unpin" : "Pin")
+        }
         .onTapGesture { m.expanded = true }
     }
 
@@ -516,6 +521,14 @@ struct NotchView: View {
                 .padding(.horizontal, 9).padding(.vertical, 4)
                 .background(Color.white.opacity(on ? 0.24 : 0.08), in: Capsule())
                 .foregroundStyle(.white.opacity(on ? 1 : 0.6))
+        }.buttonStyle(.plain)
+    }
+
+    /// Small round button for the compact strip.
+    func mini(_ name: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: name).font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                .frame(width: 18, height: 18).background(Color.white.opacity(0.16), in: Circle())
         }.buttonStyle(.plain)
     }
 

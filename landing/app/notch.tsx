@@ -230,12 +230,15 @@ export default function Notch() {
         <div className="compact" aria-hidden="true">
           <i className={s.running ? "run on" : "run"} />
           <span className="time">{display}</span>
-          {s.mode === "countdown" && completed > 0 && <Dots n={completed} cap={6} />}
+          {s.mode === "countdown" && completed > 0 && <Dots n={completed} cap={5} />}
           {s.mode === "countdown" && (
             <span className="ib tiny">
               <svg viewBox="0 0 24 24">{ICONS[s.running ? "reset" : "play"]}</svg>
             </span>
           )}
+          <span className="ib tiny pin">
+            <svg viewBox="0 0 24 24">{ICONS.pinned}</svg>
+          </span>
         </div>
 
         {s.view === "panel" && (
