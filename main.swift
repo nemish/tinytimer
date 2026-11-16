@@ -14,6 +14,14 @@ func chimeDue(prev: TimeInterval, now: TimeInterval, every: Int, repeats: Bool =
     every > 0 && Int(now) / every > Int(prev) / every && (repeats || Int(prev) < every)
 }
 
+/// The menu bar clock on each screen. Control Center draws every menu bar item as its own window and the
+/// clock is always the rightmost, so it is the item furthest right among those on a screen.
+func clockRects(items: [CGRect], screens: [CGRect]) -> [CGRect] {
+    screens.compactMap { s in
+        items.filter { s.contains(CGPoint(x: $0.midX, y: $0.midY)) }.max { $0.maxX < $1.maxX }
+    }
+}
+
 if CommandLine.arguments.contains("--selftest") {
     precondition(format(0) == "00:00" && format(65) == "01:05" && format(3725) == "1:02:05")
     precondition(chimeDue(prev: 29.9, now: 30.1, every: 30))
@@ -22,6 +30,12 @@ if CommandLine.arguments.contains("--selftest") {
     precondition(!chimeDue(prev: 29.9, now: 30.1, every: 0))
     precondition(chimeDue(prev: 29.9, now: 30.1, every: 30, repeats: false))
     precondition(!chimeDue(prev: 59.9, now: 60.1, every: 30, repeats: false))
+    let wifi = CGRect(x: 1437, y: 0, width: 38, height: 33), clock = CGRect(x: 1591, y: 0, width: 139, height: 33)
+    let clock2 = CGRect(x: 2030, y: -1440, width: 139, height: 30)  // on a second screen above the first
+    let builtIn = CGRect(x: 0, y: 0, width: 1728, height: 1117), external = CGRect(x: -391, y: -1440, width: 2560, height: 1440)
+    precondition(clockRects(items: [clock, wifi, clock2], screens: [builtIn, external]) == [clock, clock2])
+    precondition(clockRects(items: [clock, wifi], screens: [builtIn, external]) == [clock])  // menu bar hidden on one
+    precondition(clockRects(items: [], screens: [builtIn]).isEmpty)
     precondition(Updater.newer("0.10", than: "0.9") && !Updater.newer("0.2", than: "0.2") && !Updater.newer("0.1", than: "0.2"))
     var parsed: SecRequirement?
     precondition(SecRequirementCreateWithString(Updater.requirement as CFString, [], &parsed) == errSecSuccess)
@@ -114,6 +128,8 @@ final class TimerModel: ObservableObject {
     @Published var sessions: [Session] { didSet { d.set(try? JSONEncoder().encode(sessions), forKey: "sessions") } }
     var completed: Int { sessions.last?.minutes.count ?? 0 }  // finished countdowns in the current session
     @Published var doneRepeat: Bool { didSet { d.set(doneRepeat, forKey: "doneRepeat") } }
+    /// Preference: cover the menu bar clock while the timer runs (either mode), so there is no time to glance at.
+    @Published var hideClock: Bool { didSet { d.set(hideClock, forKey: "hideClock") } }
     static let sounds = ["bell", "chime", "bowl", "kalimba", "marimba", "wood", "drop", "tink"]  // single hits
     static let rings = ["phone", "digital", "melody", "bells", "pulse", "harp"]  // ringtone-style patterns
 
@@ -150,6 +166,7 @@ final class TimerModel: ObservableObject {
         doneVolume = d.double(forKey: "doneVolume")
         sessions = d.data(forKey: "sessions").flatMap { try? JSONDecoder().decode([Session].self, from: $0) } ?? []
         doneRepeat = d.bool(forKey: "doneRepeat")
+        hideClock = d.bool(forKey: "hideClock")
         if sessions.isEmpty {  // first run; carry over the old plain counter if there was one
             sessions = [Session(minutes: Array(repeating: countdownMin, count: d.integer(forKey: "completed")))]
         }
@@ -165,7 +182,7 @@ final class TimerModel: ObservableObject {
     var shown: Bool { pinned || hovering || expanded }
     /// Size of the black shape hanging from the top edge (includes the notch itself).
     var size: CGSize {
-        if showPrefs || showSessions { return CGSize(width: max(notchW, 340), height: notchH + 256) }
+        if showPrefs || showSessions { return CGSize(width: max(notchW, 340), height: notchH + (showPrefs ? 288 : 256)) }
         if expanded { return CGSize(width: max(notchW, 340), height: notchH + (mode == .countdown ? 162 : 128)) }
         return CGSize(width: notchW, height: shown ? notchH + 26 : max(notchH, 5))
     }
@@ -511,6 +528,11 @@ struct NotchView: View {
                         .controlSize(.mini).tint(.white)
                 }
             }
+            HStack(spacing: 6) {  // not a sound setting, so it shows under both tabs
+                label("Clock")
+                chip("Always shown", on: !m.hideClock) { m.hideClock = false }
+                chip("Hidden while timing", on: m.hideClock) { m.hideClock = true }
+            }
         }
         .padding(.horizontal, 16).padding(.top, 4)
     }
@@ -554,8 +576,76 @@ final class FirstMouseHostingView<V: View>: NSHostingView<V> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+/// Hides the menu bar clock by laying a blurred patch over it on every screen. macOS has no way to
+/// switch the clock off, and covering it changes no system setting, so there is nothing to restore
+/// after a quit or a crash. Clicks pass through to the clock underneath.
+final class ClockCover {
+    private var covers: [NSPanel] = []
+    private var hidden = false, lastLook = Date.distantPast
+
+    /// Call often. Covers the clock the moment `hide` turns on and uncovers it the moment it turns off.
+    /// ponytail: while hidden the clock is looked up again once a second, because it moves when menu bar
+    /// items come and go and leaves with the menu bar in full screen; one that reappears can show for up
+    /// to a second. Watch the window list for changes instead if that second ever matters.
+    func tick(hide: Bool) {
+        guard hide != hidden || (hide && Date().timeIntervalSince(lastLook) >= 1) else { return }
+        hidden = hide
+        lastLook = Date()
+        let rects = hide ? Self.clocks() : []
+        while covers.count < rects.count { covers.append(Self.cover()) }
+        for (i, c) in covers.enumerated() {
+            if i < rects.count { c.setFrame(rects[i], display: true); c.orderFrontRegardless() } else { c.orderOut(nil) }
+        }
+    }
+
+    /// Where the clocks are now, in AppKit screen coordinates. Needs no permission: only window
+    /// owners, layers and bounds are read, never their names or contents.
+    private static func clocks() -> [NSRect] {
+        guard let controlCenter = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.controlcenter").first,
+              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return [] }
+        let items = list
+            .filter { $0[kCGWindowOwnerPID as String] as? pid_t == controlCenter.processIdentifier
+                && $0[kCGWindowLayer as String] as? Int == NSWindow.Level.statusBar.rawValue }
+            .compactMap { ($0[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) } }
+            .filter { $0.height < 50 }  // menu bar items only, not a panel opened from one
+        // The window list measures y down from the top of the primary screen, AppKit up from its bottom.
+        let top = NSScreen.screens[0].frame.maxY
+        let flip = { (r: CGRect) in CGRect(x: r.minX, y: top - r.maxY, width: r.width, height: r.height) }
+        return clockRects(items: items, screens: NSScreen.screens.map { flip($0.frame) }).map(flip)
+    }
+
+    private static func cover() -> NSPanel {
+        let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = false
+        p.hidesOnDeactivate = false
+        p.ignoresMouseEvents = true
+        p.level = .init(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
+        p.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        let blur = NSVisualEffectView()
+        blur.material = .fullScreenUI  // the closest match to the menu bar of the materials tried
+        blur.blendingMode = .behindWindow
+        blur.state = .active
+        // Fade the left edge in, so the patch has no hard seam next to the neighbouring item. The fade
+        // stays inside the clock's own padding (its text starts 8pt in), or the first letter shows through.
+        let fade = NSImage(size: NSSize(width: 12, height: 8), flipped: false) { r in
+            NSGradient(starting: .clear, ending: .black)?.draw(in: NSRect(x: 0, y: 0, width: 6, height: r.height), angle: 0)
+            NSColor.black.setFill()
+            NSRect(x: 6, y: 0, width: 6, height: r.height).fill()
+            return true
+        }
+        fade.capInsets = NSEdgeInsets(top: 0, left: 6, bottom: 0, right: 1)
+        fade.resizingMode = .stretch
+        blur.maskImage = fade
+        p.contentView = blur
+        return p
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = TimerModel()
+    let clockCover = ClockCover()
     var panel: NotchPanel!
     var screen: NSScreen!
     var wasPressed = false, pressInside = false
@@ -581,7 +671,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.checkForUpdate()
         let daily = Timer(timeInterval: 86400, repeats: true) { [weak self] _ in self?.model.checkForUpdate() }
         RunLoop.main.add(daily, forMode: .common)
-        // ponytail: 30Hz cursor poll drives hover + click-through + click-outside. Swap for
+        // ponytail: 30Hz poll drives hover + click-through + click-outside + the clock cover. Swap for
         // NSEvent monitors / tracking areas if idle CPU ever shows up in Activity Monitor.
         let t = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.poll() }
         RunLoop.main.add(t, forMode: .common)
@@ -601,6 +691,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func poll() {
+        clockCover.tick(hide: model.hideClock && model.running)
         let s = model.size, f = screen.frame
         let rect = NSRect(x: f.midX - s.width / 2 - 2, y: f.maxY - s.height - 2, width: s.width + 4, height: s.height + 4)
         let inside = rect.contains(NSEvent.mouseLocation)
