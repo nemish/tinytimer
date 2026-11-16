@@ -17,7 +17,7 @@ export default function Page() {
         </svg>
         <h1>You could vibe-code this in 30&nbsp;minutes.</h1>
         <p>Or just download it. TinyTimer is a stopwatch and countdown that lives in your Mac menu bar.</p>
-        <a className="button" href={DOWNLOAD}>
+        <a className="button" href={DOWNLOAD} data-event="download_clicked">
           Download for macOS
         </a>
         <p className="small">
