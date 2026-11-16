@@ -1,0 +1,96 @@
+<!doctype html>
+<!-- Source of app/opengraph-image.png (1200x630, the link preview on X and elsewhere): the open notch panel,
+     styled by the page's own CSS, over a line of copy. Regenerate on a Mac with:
+     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --hide-scrollbars \
+       --window-size=1200,630 --screenshot=app/opengraph-image.png og.html -->
+<meta charset="utf-8" />
+<link rel="stylesheet" href="app/globals.css" />
+<style>
+  body {
+    width: 1200px;
+    height: 630px;
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+    background: radial-gradient(ellipse 900px 560px at 50% 0, #2a1c0c 0, #0b0908 70%) #0b0908;
+  }
+  /* The panel as it is when open, 2.5x. */
+  .top {
+    --w: 340px;
+    zoom: 2.5;
+  }
+  .notch {
+    width: var(--w);
+    height: 170px;
+    border-radius: 0 0 18px 18px;
+  }
+  .panel {
+    opacity: 1;
+  }
+  .brand {
+    margin: auto 0;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    font-size: 32px;
+    line-height: 1.3;
+    text-align: left;
+    color: var(--muted);
+  }
+  .brand b {
+    color: var(--text);
+  }
+  .brand .icon {
+    width: 84px;
+  }
+</style>
+<div class="top">
+  <div class="notch">
+    <div class="panel">
+      <div class="row">
+        <i class="run on"></i>
+        <span class="time">24:37</span>
+        <span class="row push">
+          <button class="ib"><svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></svg></button>
+          <button class="ib big"><svg viewBox="0 0 24 24"><rect class="solid" x="5" y="4" width="5" height="16" rx="1" /><rect class="solid" x="14" y="4" width="5" height="16" rx="1" /></svg></button>
+        </span>
+      </div>
+      <div class="row">
+        <button class="chip">Stopwatch</button>
+        <button class="chip on">Countdown</button>
+        <span class="row push">
+          <span class="dots"><i></i><i></i><i></i></span>
+          <button class="chip">Sessions</button>
+        </span>
+      </div>
+      <div class="row">
+        <button class="chip">−</button>
+        <span class="min">25 min</span>
+        <button class="chip">+</button>
+        <span class="row push">
+          <button class="chip">5</button>
+          <button class="chip">15</button>
+          <button class="chip on">25</button>
+          <button class="chip">45</button>
+        </span>
+      </div>
+      <div class="row">
+        <button class="chip">♪ bell · every 1 min</button>
+        <span class="row push">
+          <button class="ib"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="9.5" stroke-width="3" stroke-dasharray="3.73 3.73" stroke-linecap="butt" /></svg></button>
+          <button class="ib"><svg viewBox="0 0 24 24"><path class="solid" d="M9 2h6v2l-1 1v5l3 3v2h-4v5l-1 2-1-2v-5H7v-2l3-3V5L9 4z" /></svg></button>
+          <button class="ib"><svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0" /><line x1="12" y1="2" x2="12" y2="12" /></svg></button>
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="brand">
+  <svg class="icon" viewBox="0 0 96 96">
+    <rect x="0.5" y="0.5" width="95" height="95" rx="21" />
+    <circle cx="48" cy="49" r="32" />
+    <polyline points="50,33 50,52 37,45" />
+    <circle class="dot" cx="48" cy="17" r="4" />
+  </svg>
+  <span><b>TinyTimer</b> lives in your Mac&rsquo;s notch.<br />You could vibe-code it in 30 minutes. Or just download it.</span>
+</div>
