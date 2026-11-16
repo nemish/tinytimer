@@ -25,7 +25,12 @@ body {
 
 main {
   max-width: 34rem;
-  margin: auto; /* centred in the space left under the notch */
+  /* Fills the first screen (less .top and the body padding), so the changelog starts below the fold. */
+  min-height: calc(100dvh - 194px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center; /* centred in the space left under the notch */
   padding: 16px 0 120px; /* heavier at the bottom, so the block sits above centre */
   position: relative;
   top: -52px; /* and lifted into the space reserved for the open panel, which overlays it */
@@ -438,4 +443,59 @@ a:focus-visible {
 
 .small {
   font-size: 16px;
+}
+
+/* Below the fold: fades in as it scrolls into view. Browsers without scroll-driven animations
+   (and reduced-motion users) just see it. */
+.changelog {
+  width: 100%;
+  max-width: 28rem;
+  padding: 24px 0 72px;
+  font-size: 16px;
+  text-align: left;
+}
+
+.changelog h2 {
+  margin: 0 0 20px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.changelog ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 20px;
+}
+
+.changelog time {
+  margin-left: 6px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.changelog span {
+  display: block;
+  color: var(--muted);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    translate: 0 16px;
+  }
+}
+
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .changelog {
+      animation: fade-in linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 100%;
+    }
+  }
 }
