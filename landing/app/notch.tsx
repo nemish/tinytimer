@@ -12,9 +12,10 @@ const SOUNDS = ["bell", "chime", "bowl", "kalimba", "marimba", "wood", "drop", "
 const RINGS = ["phone", "digital", "melody", "bells", "pulse", "harp"];
 const UNSHIPPED = ["tink", "glass"];
 
-type Session = { id: number; start: number; minutes: number[] };
+type Block = { id: number; start: number; minutes: number[]; name?: string }; // name: the preset it was started from
+type Preset = { name: string; minutes: number };
 let nextId = 1;
-const newSession = (minutes: number[] = []): Session => ({ id: nextId++, start: Date.now(), minutes });
+const newBlock = (minutes: number[] = [], name?: string): Block => ({ id: nextId++, start: Date.now(), minutes, name });
 
 const initial = () => ({
   mode: "countdown" as "stopwatch" | "countdown",
@@ -29,7 +30,10 @@ const initial = () => ({
   doneSound: "glass",
   doneVolume: 0.5,
   doneRepeat: false,
-  sessions: [newSession([25, 25, 25])],
+  blocks: [newBlock([25, 25, 25])],
+  presets: [{ name: "Office", minutes: 40 }, { name: "Home", minutes: 25 }] as Preset[],
+  addingPreset: false, // Sessions: the name field for a new preset is open
+  presetName: "",
   view: "panel" as "panel" | "prefs" | "sessions",
   finishTab: false,
   off: false,
@@ -147,14 +151,14 @@ export default function Notch() {
       const now = c.elapsed + 1;
       if (c.mode === "countdown" && now >= c.min * 60) {
         // Finished: back to the full duration, one more dot, and the finish sound.
-        const sessions = c.sessions.slice(-200);
-        const last = sessions[sessions.length - 1];
-        sessions[sessions.length - 1] = {
+        const blocks = c.blocks.slice(-200);
+        const last = blocks[blocks.length - 1];
+        blocks[blocks.length - 1] = {
           ...last,
           start: last.minutes.length ? last.start : Date.now(),
           minutes: [...last.minutes, c.min],
         };
-        set({ running: false, elapsed: 0, sessions });
+        set({ running: false, elapsed: 0, blocks });
         play(c.doneSound, c.doneVolume, c.doneRepeat);
         if (c.doneRepeat) setTimeout(stopRinging, 60_000); // rings for a minute at most
         return;
@@ -168,8 +172,9 @@ export default function Notch() {
 
   const duration = s.min * 60;
   const display = format(s.mode === "stopwatch" ? s.elapsed : Math.max(0, duration - s.elapsed));
-  const completed = s.sessions[s.sessions.length - 1].minutes.length;
-  const done = s.sessions.filter((x) => x.minutes.length).reverse();
+  const current = s.blocks[s.blocks.length - 1];
+  const completed = current.minutes.length;
+  const done = s.blocks.filter((x) => x.minutes.length).reverse();
 
   function toggle() {
     stopRinging();
@@ -179,9 +184,21 @@ export default function Notch() {
     stopRinging();
     set({ running: false, elapsed: 0, ...patch });
   }
-  function deleteSession(id: number) {
-    const rest = s.sessions.filter((x) => x.id !== id);
-    set({ sessions: rest.length && !rest[rest.length - 1].minutes.length ? rest : [...rest, newSession()] });
+  /** Picking a preset, or "New block" without one. Always a new block; an empty current one is replaced. */
+  function startBlock(preset?: Preset) {
+    const kept = completed ? s.blocks : s.blocks.slice(0, -1);
+    set({ blocks: [...kept, newBlock([], preset?.name)], min: preset?.minutes ?? s.min });
+  }
+  /** Saves the countdown length now set under the typed name, unless that is empty or already taken. */
+  function savePreset() {
+    const name = s.presetName.trim().slice(0, 16); // has to fit the panel's chip
+    if (!name || s.presets.some((p) => p.name === name)) return;
+    set({ presets: [...s.presets, { name, minutes: s.min }], presetName: "", addingPreset: false });
+  }
+  function deleteBlock(id: number) {
+    const rest = s.blocks.filter((x) => x.id !== id);
+    // keep an open current block
+    set({ blocks: rest.length && !rest[rest.length - 1].minutes.length ? rest : [...rest, newBlock([], current.name)] });
   }
   function quit() {
     playing.current?.pause();
@@ -257,7 +274,7 @@ export default function Notch() {
               {s.mode === "countdown" && (
                 <span className="row push">
                   <Dots n={completed} cap={10} />
-                  <Chip onClick={() => set({ view: "sessions" })}>Sessions</Chip>
+                  <Chip onClick={() => set({ view: "sessions" })}>{current.name ?? "Sessions"}</Chip>
                 </span>
               )}
             </div>
@@ -290,21 +307,44 @@ export default function Notch() {
               <IconButton icon="back" label="Back" onClick={() => set({ view: "panel" })} />
               <span className="title">Sessions</span>
               <span className="row push">
-                <Chip disabled={completed === 0} onClick={() => set({ sessions: [...s.sessions, newSession()] })}>New session</Chip>
-                <Chip disabled={done.length === 0} onClick={() => set({ sessions: [newSession()] })}>Clear all</Chip>
+                <Chip on={s.addingPreset} label="Save a preset" onClick={() => set({ addingPreset: !s.addingPreset })}>+</Chip>
+                <Chip disabled={completed === 0 && !current.name} onClick={() => startBlock()}>New block</Chip>
+                <Chip disabled={done.length === 0} onClick={() => set({ blocks: [newBlock([], current.name)] })}>Clear all</Chip>
               </span>
             </div>
+            {s.addingPreset && (
+              <div className="row">
+                <input type="text" aria-label="Preset name" placeholder="Preset name" autoFocus value={s.presetName}
+                  onChange={(e) => set({ presetName: e.target.value })}
+                  onKeyDown={(e) => { if (e.key === "Enter") savePreset(); }} />
+                <Chip on onClick={savePreset}>Save · {s.min} min</Chip>
+              </div>
+            )}
+            {s.presets.length > 0 && (
+              <div className="row presets">
+                {s.presets.map((p) => (
+                  <span className="row" key={p.name}>
+                    <Chip on={current.name === p.name} onClick={() => startBlock(p)}>{p.name} · {p.minutes}</Chip>
+                    <IconButton icon="x" label={`Delete preset ${p.name}`} tiny
+                      onClick={() => set({ presets: s.presets.filter((q) => q.name !== p.name) })} />
+                  </span>
+                ))}
+              </div>
+            )}
             {done.length === 0 ? (
               <span className="note">No finished countdowns yet. Each countdown that reaches zero adds a dot.</span>
             ) : (
-              <div className="list">
+              <div className="list" style={{ maxHeight: 196 - 32 * (Number(s.addingPreset) + Number(s.presets.length > 0)) }}>
                 {done.map((x) => (
                   <div className="row" key={x.id}>
-                    <span className={x.id === s.sessions[s.sessions.length - 1].id ? "when current" : "when"}>{when(x.start)}</span>
+                    <span className={x.id === current.id ? "when current" : "when"}>
+                      {x.name && <b>{x.name}</b>}
+                      {when(x.start)}
+                    </span>
                     <Dots n={x.minutes.length} cap={16} />
                     <span className="row push">
                       <span className="when">{x.minutes.reduce((a, b) => a + b, 0)} min</span>
-                      <IconButton icon="x" label="Delete session" tiny onClick={() => deleteSession(x.id)} />
+                      <IconButton icon="x" label="Delete block" tiny onClick={() => deleteBlock(x.id)} />
                     </span>
                   </div>
                 ))}

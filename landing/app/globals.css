@@ -262,6 +262,44 @@ main {
   color: #fff;
 }
 
+/* A named block: its name above the start time. */
+.notch .when b {
+  display: block;
+  margin-bottom: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  color: #ffffffb3;
+}
+
+.notch .when.current b {
+  color: #fff;
+}
+
+.notch .presets {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.notch .presets > .row {
+  flex: none;
+  gap: 2px;
+}
+
+.notch input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: #ffffff14;
+  color: #fff;
+  font: inherit;
+  font-weight: 400;
+  user-select: text; /* .notch turns selection off, which in Safari also stops typing */
+}
+
 .notch .chip {
   padding: 4px 9px;
   border-radius: 999px;
