@@ -22,7 +22,11 @@ func clockRects(items: [CGRect], screens: [CGRect]) -> [CGRect] {
     }
 }
 
+/// Which of `n` dots, capped at `cap`, marks the newest session: its index, or nil when the "+N" label stands in for it.
+func newestDot(_ n: Int, cap: Int) -> Int? { n > cap ? nil : n - 1 }
+
 if CommandLine.arguments.contains("--selftest") {
+    precondition(newestDot(1, cap: 5) == 0 && newestDot(5, cap: 5) == 4 && newestDot(6, cap: 5) == nil)
     precondition(format(0) == "00:00" && format(65) == "01:05" && format(3725) == "1:02:05")
     precondition(chimeDue(prev: 29.9, now: 30.1, every: 30))
     precondition(!chimeDue(prev: 30.1, now: 30.3, every: 30))
@@ -133,6 +137,8 @@ final class TimerModel: ObservableObject {
     static let sounds = ["bell", "chime", "bowl", "kalimba", "marimba", "wood", "drop", "tink"]  // single hits
     static let rings = ["phone", "digital", "melody", "bells", "pulse", "harp"]  // ringtone-style patterns
 
+    /// A countdown finished and the user has not hovered over or clicked the timer since. Never persisted.
+    @Published var finishUnacknowledged = false
     @Published var expanded = false {
         didSet { if expanded { stopRinging() } else { showPrefs = false; showSessions = false } }
     }
@@ -140,7 +146,7 @@ final class TimerModel: ObservableObject {
     @Published var update: String?  // newer published version, if any
     @Published var updating = false
     @Published var showPrefs = false
-    @Published var hovering = false
+    @Published var hovering = false { didSet { if hovering { acknowledgeFinish() } } }
     @Published var elapsed: TimeInterval = 0
     @Published var running = false
     @Published var notchW: CGFloat = 180
@@ -179,7 +185,7 @@ final class TimerModel: ObservableObject {
     var display: String {
         mode == .stopwatch ? format(Int(elapsed)) : format(Int(max(0, duration - elapsed).rounded(.up)))
     }
-    var shown: Bool { pinned || hovering || expanded }
+    var shown: Bool { pinned || hovering || expanded || finishUnacknowledged }
     /// Size of the black shape hanging from the top edge (includes the notch itself).
     var size: CGSize {
         if showPrefs || showSessions { return CGSize(width: max(notchW, 340), height: notchH + (showPrefs ? 288 : 256)) }
@@ -268,9 +274,12 @@ final class TimerModel: ObservableObject {
         done?.loops = true
         ringing = true
         // ponytail: hard 60s cap so it can't ring forever in an empty room; make it a setting if needed.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in self?.stopRinging() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in self?.stopRinging(acknowledge: false) }
     }
-    func stopRinging() {
+    func acknowledgeFinish() { if finishUnacknowledged { finishUnacknowledged = false } }
+    /// Every interaction that dismisses the ring also acknowledges the finish; the 60s cap does not.
+    func stopRinging(acknowledge: Bool = true) {
+        if acknowledge { acknowledgeFinish() }
         guard ringing else { return }
         ringing = false
         done?.stop()
@@ -285,6 +294,7 @@ final class TimerModel: ObservableObject {
             toggle()
             base = 0; elapsed = 0  // back to the full duration, ready to start again
             recordFinish()
+            finishUnacknowledged = true
             ring()
             return
         }
@@ -298,6 +308,7 @@ final class TimerModel: ObservableObject {
 struct NotchView: View {
     @ObservedObject var m: TimerModel
     @State private var finishTab = false  // Preferences: editing the countdown-finished sound
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
@@ -331,7 +342,7 @@ struct NotchView: View {
         HStack(spacing: 6) {
             dot
             Text(m.display).font(.system(size: 13, weight: .medium).monospacedDigit()).foregroundStyle(.white)
-            if m.mode == .countdown && m.completed > 0 { dots(m.completed, cap: 5) }
+            if m.mode == .countdown && m.completed > 0 { dots(m.completed, cap: 5, pulse: m.finishUnacknowledged) }
             if m.mode == .countdown {  // quick start; while running it restarts from the full duration
                 mini(m.running ? "arrow.counterclockwise" : "play.fill") { m.running ? m.restart() : m.toggle() }
                     .padding(.leading, 4)
@@ -367,7 +378,7 @@ struct NotchView: View {
                 chip("Countdown", on: m.mode == .countdown) { m.mode = .countdown }
                 Spacer()
                 if m.mode == .countdown {
-                    dots(m.completed, cap: 10)
+                    dots(m.completed, cap: 10, pulse: m.finishUnacknowledged)
                     chip("Sessions", on: false) { m.showSessions = true }
                 }
             }
@@ -398,13 +409,27 @@ struct NotchView: View {
         .padding(.horizontal, 16).padding(.top, 4)
     }
 
-    /// One dot per finished countdown.
-    func dots(_ n: Int, cap: Int) -> some View {
-        HStack(spacing: 3) {
-            ForEach(0..<min(n, cap), id: \.self) { _ in Circle().fill(Color.orange).frame(width: 5, height: 5) }
-            if n > cap {
-                Text("+\(n - cap)").font(.system(size: 9, weight: .semibold)).foregroundStyle(.orange)
+    /// One dot per finished countdown. With `pulse`, the newest dot (or the "+N" label standing in for it) pulses.
+    func dots(_ n: Int, cap: Int, pulse: Bool = false) -> some View {
+        let newest = pulse ? newestDot(n, cap: cap) : -1
+        return HStack(spacing: 3) {
+            ForEach(0..<min(n, cap), id: \.self) { i in
+                pulsing(Circle().frame(width: 5, height: 5), i == newest)
             }
+            if n > cap {
+                pulsing(Text("+\(n - cap)").font(.system(size: 9, weight: .semibold)), newest == nil)
+            }
+        }
+    }
+
+    /// Orange like every dot; when `on` it pulses, or with Reduce Motion is only highlighted in white.
+    @ViewBuilder func pulsing<V: View>(_ v: V, _ on: Bool) -> some View {
+        if on && !reduceMotion {
+            v.foregroundStyle(.orange).phaseAnimator([true, false]) { c, lit in
+                c.opacity(lit ? 1 : 0.25).scaleEffect(lit ? 1.3 : 1)
+            } animation: { _ in .easeInOut(duration: 0.6) }
+        } else {
+            v.foregroundStyle(on ? .white : .orange)
         }
     }
 
@@ -698,7 +723,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let pressed = NSEvent.pressedMouseButtons != 0
         if pressed && !wasPressed {
             pressInside = inside
-            if !inside { model.expanded = false }  // click elsewhere collapses
+            if inside { model.acknowledgeFinish() } else { model.expanded = false }  // click elsewhere collapses
         }
         wasPressed = pressed
         if pressed && pressInside { return }  // mid-drag: keep receiving events
