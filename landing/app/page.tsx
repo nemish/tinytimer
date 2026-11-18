@@ -6,6 +6,7 @@ const REPO = "https://github.com/nemish/tinytimer";
 
 // Newest first. Add a line here with each `../build.sh release`.
 const CHANGELOG = [
+  ["0.5", "Nov 18, 2026", "Presets and named blocks: save a name and countdown length, then start a block of sessions from it. A finished session now reveals the timer and pulses its dot until you notice."],
   ["0.4", "Nov 17, 2026", "Optional focus aid: hide the macOS menu bar clock while the timer runs. Turn it on in Preferences."],
   ["0.3", "Nov 16, 2026", "Pin button on the compact timer, so you can keep it visible without opening the panel."],
   ["0.2", "Nov 14, 2026", "Updates itself: an “Update” button appears when a newer version is out. One click installs it."],
