@@ -25,7 +25,53 @@ func clockRects(items: [CGRect], screens: [CGRect]) -> [CGRect] {
 /// Which of `n` dots, capped at `cap`, marks the newest session: its index, or nil when the "+N" label stands in for it.
 func newestDot(_ n: Int, cap: Int) -> Int? { n > cap ? nil : n - 1 }
 
+/// Starts a new current block from `preset` (unnamed without one) and gives the countdown length that goes with it.
+/// Always a new block, never an earlier one resumed; a current block still without sessions is replaced.
+func startBlock(from preset: Preset?, in blocks: [Block], countdownMin: Int, now: Date) -> (blocks: [Block], countdownMin: Int) {
+    let kept = blocks.last?.minutes.isEmpty == true ? Array(blocks.dropLast()) : blocks
+    return (kept + [Block(start: now, name: preset?.name)], preset?.minutes ?? countdownMin)
+}
+
+/// A block never spans days: when the current block has sessions from another day, a session finishing `now`
+/// lands in a new block from the preset that block was named after, or an unnamed one if there is none (any more).
+/// Nil when the current block carries on.
+func rollover(_ blocks: [Block], presets: [Preset], countdownMin: Int, now: Date,
+              calendar: Calendar = .current) -> (blocks: [Block], countdownMin: Int)? {
+    guard let last = blocks.last, !last.minutes.isEmpty, !calendar.isDate(last.start, inSameDayAs: now) else { return nil }
+    return startBlock(from: presets.first { $0.name == last.name }, in: blocks, countdownMin: countdownMin, now: now)
+}
+
 if CommandLine.arguments.contains("--selftest") {
+    let office = Preset(name: "Office", minutes: 40), home = Preset(name: "Home", minutes: 20)
+    let day1 = Date(timeIntervalSinceReferenceDate: 800_000_000), day2 = day1 + 86400
+    // History written by 0.4 has no names: it loads as unnamed blocks.
+    let old = #"[{"id":"7E4A4C0E-0B8B-4E0B-9C61-0C8A1B2C3D4E","start":800000000,"minutes":[25,15]}]"#
+    let loaded = (try? JSONDecoder().decode([Block].self, from: Data(old.utf8))) ?? []
+    precondition(loaded.count == 1 && loaded[0].name == nil && loaded[0].minutes == [25, 15] && loaded[0].start == day1)
+    // Picking a preset: a named block and the preset's length; an empty current block is replaced.
+    var picked = startBlock(from: office, in: loaded, countdownMin: 25, now: day1)
+    precondition(picked.countdownMin == 40 && picked.blocks.count == 2 && picked.blocks[1].name == "Office")
+    picked = startBlock(from: home, in: picked.blocks, countdownMin: 40, now: day1)
+    precondition(picked.countdownMin == 20 && picked.blocks.map(\.name) == [nil, "Home"])
+    // Office, Home, Office with sessions in each: two separate Office blocks.
+    var blocks = [Block(start: day1, minutes: [40], name: "Office"), Block(start: day1, minutes: [20], name: "Home")]
+    blocks = startBlock(from: office, in: blocks, countdownMin: 20, now: day1).blocks
+    precondition(blocks.map(\.name) == ["Office", "Home", "Office"] && blocks[0].id != blocks[2].id && blocks[0].minutes == [40])
+    // "New block": unnamed, countdown length left alone.
+    let plain = startBlock(from: nil, in: [Block(start: day1, minutes: [40], name: "Office")], countdownMin: 33, now: day1)
+    precondition(plain.countdownMin == 33 && plain.blocks.map(\.name) == ["Office", nil])
+    // Day rollover: same day carries on; a new day starts a block from the last-used preset, at its length.
+    blocks[2].minutes = [35]
+    precondition(rollover(blocks, presets: [office, home], countdownMin: 35, now: day1 + 60) == nil)
+    let next = rollover(blocks, presets: [office, home], countdownMin: 35, now: day2)
+    precondition(next?.countdownMin == 40 && next?.blocks.count == 4 && next?.blocks.last?.name == "Office"
+        && next?.blocks.last?.minutes.isEmpty == true && next?.blocks[2].minutes == [35])
+    // Preset deleted, or the last block unnamed: an unnamed block, countdown length left alone.
+    let gone = rollover(blocks, presets: [home], countdownMin: 35, now: day2)
+    precondition(gone?.countdownMin == 35 && gone?.blocks.count == 4 && gone?.blocks.last?.name == nil)
+    let unnamed = rollover(loaded, presets: [office], countdownMin: 25, now: day2)
+    precondition(unnamed?.countdownMin == 25 && unnamed?.blocks.count == 2 && unnamed?.blocks.last?.name == nil)
+    precondition(rollover([Block(start: day1, name: "Office")], presets: [office], countdownMin: 25, now: day2) == nil)  // nothing finished yet
     precondition(newestDot(1, cap: 5) == 0 && newestDot(5, cap: 5) == 4 && newestDot(6, cap: 5) == nil)
     precondition(format(0) == "00:00" && format(65) == "01:05" && format(3725) == "1:02:05")
     precondition(chimeDue(prev: 29.9, now: 30.1, every: 30))
@@ -109,12 +155,16 @@ enum Updater {
 
 // MARK: - Model
 
-/// A run of finished countdowns (one Pomodoro sitting). The last element of `sessions` is the current one.
-struct Session: Codable, Identifiable {
+/// A stretch of work within one day. The last element of `blocks` is the current one.
+struct Block: Codable, Identifiable {
     var id = UUID()
     var start = Date()
-    var minutes: [Int] = []  // length of each finished countdown; one dot each
+    var minutes: [Int] = []  // length of each session (finished countdown); one dot each
+    var name: String?  // the preset it was started from; nil for an unnamed block and for history from before 0.5
 }
+
+/// A saved name and countdown length from which blocks are started. Found again by name, so names are unique.
+struct Preset: Codable { var name: String; var minutes: Int }
 
 final class TimerModel: ObservableObject {
     enum Mode: String { case stopwatch, countdown }
@@ -129,8 +179,10 @@ final class TimerModel: ObservableObject {
     @Published var volume: Double { didSet { d.set(volume, forKey: "volume"); chime?.volume = Float(volume) } }
     @Published var doneSound: String { didSet { d.set(doneSound, forKey: "doneSound"); loadDone() } }
     @Published var doneVolume: Double { didSet { d.set(doneVolume, forKey: "doneVolume"); done?.volume = Float(doneVolume) } }
-    @Published var sessions: [Session] { didSet { d.set(try? JSONEncoder().encode(sessions), forKey: "sessions") } }
-    var completed: Int { sessions.last?.minutes.count ?? 0 }  // finished countdowns in the current session
+    // Stored under "sessions", the key from before blocks had a name of their own.
+    @Published var blocks: [Block] { didSet { d.set(try? JSONEncoder().encode(blocks), forKey: "sessions") } }
+    @Published var presets: [Preset] { didSet { d.set(try? JSONEncoder().encode(presets), forKey: "presets") } }
+    var completed: Int { blocks.last?.minutes.count ?? 0 }  // sessions in the current block
     @Published var doneRepeat: Bool { didSet { d.set(doneRepeat, forKey: "doneRepeat") } }
     /// Preference: cover the menu bar clock while the timer runs (either mode), so there is no time to glance at.
     @Published var hideClock: Bool { didSet { d.set(hideClock, forKey: "hideClock") } }
@@ -170,11 +222,12 @@ final class TimerModel: ObservableObject {
         volume = d.double(forKey: "volume")
         doneSound = d.string(forKey: "doneSound") ?? "glass"
         doneVolume = d.double(forKey: "doneVolume")
-        sessions = d.data(forKey: "sessions").flatMap { try? JSONDecoder().decode([Session].self, from: $0) } ?? []
+        blocks = d.data(forKey: "sessions").flatMap { try? JSONDecoder().decode([Block].self, from: $0) } ?? []
+        presets = d.data(forKey: "presets").flatMap { try? JSONDecoder().decode([Preset].self, from: $0) } ?? []
         doneRepeat = d.bool(forKey: "doneRepeat")
         hideClock = d.bool(forKey: "hideClock")
-        if sessions.isEmpty {  // first run; carry over the old plain counter if there was one
-            sessions = [Session(minutes: Array(repeating: countdownMin, count: d.integer(forKey: "completed")))]
+        if blocks.isEmpty {  // first run; carry over the old plain counter if there was one
+            blocks = [Block(minutes: Array(repeating: countdownMin, count: d.integer(forKey: "completed")))]
         }
         startFreshIfStale()
         loadChime()
@@ -206,27 +259,39 @@ final class TimerModel: ObservableObject {
         }
     }
 
-    /// Yesterday's session doesn't continue today.
+    /// Yesterday's block doesn't continue today.
     private func startFreshIfStale() {
-        if completed > 0, !Calendar.current.isDateInToday(sessions[sessions.count - 1].start) { sessions.append(Session()) }
+        guard let r = rollover(blocks, presets: presets, countdownMin: countdownMin, now: Date()) else { return }
+        blocks = r.blocks; countdownMin = r.countdownMin
     }
 
-    func newSession() {
-        if completed > 0 { sessions.append(Session()) }
+    /// Picking a preset, or "New block" without one.
+    func newBlock(from preset: Preset? = nil) {
+        (blocks, countdownMin) = startBlock(from: preset, in: blocks, countdownMin: countdownMin, now: Date())
     }
 
-    func deleteSession(_ id: UUID) {
-        sessions.removeAll { $0.id == id }
-        if sessions.last?.minutes.isEmpty != true { sessions.append(Session()) }  // keep an open current session
+    /// Saves the countdown length now set under `name`. False if the name is empty or already taken.
+    func savePreset(_ name: String) -> Bool {
+        let name = String(name.trimmingCharacters(in: .whitespaces).prefix(16))  // has to fit the panel's chip
+        guard !name.isEmpty, !presets.contains(where: { $0.name == name }) else { return false }
+        presets.append(Preset(name: name, minutes: countdownMin))
+        return true
+    }
+
+    func deleteBlock(_ id: UUID) {
+        let name = blocks.last?.name
+        blocks.removeAll { $0.id == id }
+        if blocks.last?.minutes.isEmpty != true { blocks.append(Block(name: name)) }  // keep an open current block
     }
 
     private func recordFinish() {
+        let ran = countdownMin  // a new day's block may change the length for the next countdown, not for this session
         startFreshIfStale()
-        var all = sessions
+        var all = blocks
         if all[all.count - 1].minutes.isEmpty { all[all.count - 1].start = Date() }
-        all[all.count - 1].minutes.append(countdownMin)
-        // ponytail: history lives in UserDefaults, capped at 200 sessions; move to a file if it needs to grow.
-        sessions = Array(all.suffix(200))
+        all[all.count - 1].minutes.append(ran)
+        // ponytail: history lives in UserDefaults, capped at 200 blocks; move to a file if it needs to grow.
+        blocks = Array(all.suffix(200))
     }
 
     func checkForUpdate() { Updater.check { [weak self] v in self?.update = v } }
@@ -308,6 +373,9 @@ final class TimerModel: ObservableObject {
 struct NotchView: View {
     @ObservedObject var m: TimerModel
     @State private var finishTab = false  // Preferences: editing the countdown-finished sound
+    @State private var addingPreset = false  // Sessions: the name field for a new preset is open
+    @State private var presetName = ""
+    @FocusState private var namingPreset: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -379,7 +447,7 @@ struct NotchView: View {
                 Spacer()
                 if m.mode == .countdown {
                     dots(m.completed, cap: 10, pulse: m.finishUnacknowledged)
-                    chip("Sessions", on: false) { m.showSessions = true }
+                    chip(m.blocks.last?.name ?? "Sessions", on: false) { m.showSessions = true }
                 }
             }
             if m.mode == .countdown {
@@ -439,17 +507,56 @@ struct NotchView: View {
         return f.string(from: date)
     }
 
+    func savePreset() {
+        if m.savePreset(presetName) { presetName = ""; addingPreset = false }
+    }
+
+    func remove(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                .foregroundStyle(.white.opacity(0.5)).frame(width: 16, height: 16)
+                .background(Color.white.opacity(0.08), in: Circle())
+        }.buttonStyle(.plain)
+    }
+
     var sessionsView: some View {
-        let done = Array(m.sessions.filter { !$0.minutes.isEmpty }.reversed())
+        let done = Array(m.blocks.filter { !$0.minutes.isEmpty }.reversed())
+        let current = m.blocks.last
+        let fresh = current?.minutes.isEmpty == true && current?.name == nil  // already an empty unnamed block
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 icon("chevron.left") { m.showSessions = false }
                 Text("Sessions").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
                 Spacer()
-                chip("New session", on: false) { m.newSession() }
-                    .opacity(m.completed > 0 ? 1 : 0.35).disabled(m.completed == 0)
-                chip("Clear all", on: false) { m.sessions = [Session()] }
+                chip("+", on: addingPreset) { addingPreset.toggle() }.help("Save a preset")
+                chip("New block", on: false) { m.newBlock() }
+                    .opacity(fresh ? 0.35 : 1).disabled(fresh)
+                chip("Clear all", on: false) { m.blocks = [Block(name: current?.name)] }
                     .opacity(done.isEmpty ? 0.35 : 1).disabled(done.isEmpty)
+            }
+            if addingPreset {
+                HStack(spacing: 6) {
+                    TextField("Preset name", text: $presetName).textFieldStyle(.plain)
+                        .font(.system(size: 11)).foregroundStyle(.white).environment(\.colorScheme, .dark)
+                        .padding(.horizontal, 9).padding(.vertical, 4)
+                        .background(Color.white.opacity(0.08), in: Capsule())
+                        .focused($namingPreset).onSubmit { savePreset() }
+                        // The panel never activates the app; it has to be key for the field to get the typing.
+                        .onAppear { NSApp.windows.first { $0 is NotchPanel }?.makeKey(); namingPreset = true }
+                    chip("Save · \(m.countdownMin) min", on: true) { savePreset() }
+                }
+            }
+            if !m.presets.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(m.presets, id: \.name) { p in
+                            HStack(spacing: 2) {
+                                chip("\(p.name) · \(p.minutes)", on: current?.name == p.name) { m.newBlock(from: p) }
+                                remove { m.presets.removeAll { $0.name == p.name } }
+                            }
+                        }
+                    }
+                }
             }
             if done.isEmpty {
                 Text("No finished countdowns yet. Each countdown that reaches zero adds a dot.")
@@ -458,20 +565,22 @@ struct NotchView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(done) { s in
-                            let current = s.id == m.sessions.last?.id
+                            let on = s.id == current?.id
                             HStack(spacing: 8) {
-                                Text(when(s.start)).font(.system(size: 11).monospacedDigit())
-                                    .foregroundStyle(.white.opacity(current ? 1 : 0.55))
-                                    .frame(width: 84, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    if let name = s.name {
+                                        Text(name).font(.system(size: 11, weight: .medium)).lineLimit(1)
+                                            .foregroundStyle(.white.opacity(on ? 1 : 0.7))
+                                    }
+                                    Text(when(s.start)).font(.system(size: 11).monospacedDigit())
+                                        .foregroundStyle(.white.opacity(on ? 1 : 0.55))
+                                }
+                                .frame(width: 84, alignment: .leading)
                                 dots(s.minutes.count, cap: 16)
                                 Spacer()
                                 Text("\(s.minutes.reduce(0, +)) min").font(.system(size: 11).monospacedDigit())
                                     .foregroundStyle(.white.opacity(0.55))
-                                Button { m.deleteSession(s.id) } label: {
-                                    Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
-                                        .foregroundStyle(.white.opacity(0.5)).frame(width: 16, height: 16)
-                                        .background(Color.white.opacity(0.08), in: Circle())
-                                }.buttonStyle(.plain)
+                                remove { m.deleteBlock(s.id) }
                             }
                         }
                     }
@@ -564,7 +673,7 @@ struct NotchView: View {
 
     func chip(_ label: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(label).font(.system(size: 11, weight: .medium))
+            Text(label).font(.system(size: 11, weight: .medium)).lineLimit(1)
                 .padding(.horizontal, 9).padding(.vertical, 4)
                 .background(Color.white.opacity(on ? 0.24 : 0.08), in: Capsule())
                 .foregroundStyle(.white.opacity(on ? 1 : 0.6))

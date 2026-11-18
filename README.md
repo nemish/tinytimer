@@ -28,11 +28,11 @@ cd tinytimer
 
 ## What it does
 
-- **Stopwatch** and **countdown** modes. The countdown is 1 to 600 minutes, with quick presets for 5, 15, 25 and 45.
+- **Stopwatch** and **countdown** modes. The countdown is 1 to 600 minutes, with quick picks for 5, 15, 25 and 45.
 - **Interval chime**: a soft sound every 30 seconds, 1 minute or 5 minutes, either repeating or once.
 - **Countdown-end sound**: plays once, or rings until you click the timer (it stops by itself after 1 minute).
 - **Sounds**: 13 bundled sounds (single hits and ringtone-style patterns) plus two macOS system sounds, with separate volume for the chime and the countdown end.
-- **Sessions**: every countdown that reaches zero adds a dot, Pomodoro style. Dots group into sessions, a new session starts each day, and the history keeps the last 200 sessions.
+- **Sessions**: every countdown that reaches zero is a session and adds a dot. Sessions group into blocks: there is always a current block, a new one starts each day or when you ask for one, and the history keeps the last 200 blocks. Optionally save presets (a name and a countdown length, say "Office" at 40 minutes): picking one starts a block with that name and sets the countdown to its length.
 - **Updates itself**: when a newer version is published, an "Update to x.y" button appears in the expanded panel. One click downloads it, checks its signature, replaces the app and relaunches.
 - **Hides the menu bar clock** (optional, off by default): with "Hidden while timing" set in Preferences, the macOS clock in the top-right corner is covered while the stopwatch or a countdown is running, and comes back when you pause, reset or finish. It is only covered, never switched off, so no system setting changes.
 - **Stays out of the way**: no Dock icon, no menu bar item, and it is visible on every Space and over full-screen apps.
